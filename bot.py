@@ -20,6 +20,8 @@ from aiogram.fsm.state import StatesGroup, State
 BOT_TOKEN = "8626762224:AAGdtJiY0A3yTOCh7RWrOuNKI4M9iYLVNFQ"
 PUBLIC_LINK = "https://disk.360.yandex.ru/d/Xc08g8WbTavdHQ"
 
+ADMIN_ID = 7685909494
+
 logging.basicConfig(level=logging.INFO)
 
 # =========================
@@ -28,6 +30,7 @@ logging.basicConfig(level=logging.INFO)
 
 lessons_db = []
 subscriptions = {}
+users_db = set()
 
 # =========================
 # СОСТОЯНИЯ
@@ -41,6 +44,9 @@ class ScheduleStates(StatesGroup):
 class SubscribeStates(StatesGroup):
     waiting_for_type = State()
     waiting_for_item = State()
+
+class AdminStates(StatesGroup):
+    waiting_for_broadcast = State()
 
 # =========================
 # ЗАГРУЗКА РАСПИСАНИЯ
@@ -187,7 +193,7 @@ def load_schedule_from_yandex(public_link):
         logging.error(e)
 
 # =========================
-# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+# ВСПОМОГАТЕЛЬНЫЕ
 # =========================
 
 def get_unique_items(search_type):
@@ -271,6 +277,8 @@ router = Router()
 @router.message(Command("start"))
 async def cmd_start(message: Message):
 
+    users_db.add(message.from_user.id)
+
     builder = InlineKeyboardBuilder()
 
     builder.button(
@@ -284,22 +292,92 @@ async def cmd_start(message: Message):
     )
 
     builder.button(
+        text="➕ Подписаться",
+        callback_data="open_subscribe"
+    )
+
+    builder.button(
+        text="➖ Отписаться",
+        callback_data="open_unsubscribe"
+    )
+
+    builder.button(
+        text="ℹ️ Помощь",
+        callback_data="open_help"
+    )
+
+    builder.button(
         text="🛠 Поддержка",
         url="https://t.me/DevMenter"
     )
 
     builder.adjust(1)
 
+    text = (
+        "╔════════════════╗\n"
+        " 🎓 <b>БОТ РАСПИСАНИЯ</b>\n"
+        "╚════════════════╝\n\n"
+
+        "📚 Просмотр расписания\n"
+        "⭐ Удобные подписки\n"
+        "⚡ Быстрый доступ\n"
+        "🕒 Автообновление\n\n"
+
+        "━━━━━━━━━━━━━━\n"
+        "📌 <b>Команды:</b>\n\n"
+
+        "📅 /schedule — расписание\n"
+        "⭐ /subscriptions — подписки\n"
+        "➕ /subscribe — подписаться\n"
+        "➖ /unsubscribe — отписаться\n"
+        "ℹ️ /help — помощь\n"
+        "🛠 /admin — админ панель\n\n"
+
+        "━━━━━━━━━━━━━━\n"
+        "💡 Выберите действие:"
+    )
+
     await message.answer(
-        (
-            "👋 <b>Добро пожаловать</b>\n\n"
-            "📚 Просмотр расписания\n"
-            "⭐ Сохранение подписок\n"
-            "⚡ Удобная навигация"
-        ),
+        text,
         parse_mode="HTML",
         reply_markup=builder.as_markup()
     )
+
+# =========================
+# HELP
+# =========================
+
+@router.message(Command("help"))
+@router.callback_query(F.data == "open_help")
+async def cmd_help(event):
+
+    text = (
+        "ℹ️ <b>Помощь</b>\n\n"
+
+        "📅 /schedule — расписание\n"
+        "⭐ /subscriptions — подписки\n"
+        "➕ /subscribe — подписаться\n"
+        "➖ /unsubscribe — отписаться\n\n"
+
+        "🛠 Поддержка:\n"
+        "@DevMenter"
+    )
+
+    if isinstance(event, Message):
+
+        await event.answer(
+            text,
+            parse_mode="HTML"
+        )
+
+    else:
+
+        await event.message.delete()
+
+        await event.message.answer(
+            text,
+            parse_mode="HTML"
+        )
 
 # =========================
 # SCHEDULE
@@ -334,6 +412,8 @@ async def cmd_schedule(event, state: FSMContext):
 
     else:
 
+        await event.message.delete()
+
         await event.message.answer(
             text,
             parse_mode="HTML",
@@ -345,7 +425,8 @@ async def cmd_schedule(event, state: FSMContext):
 # =========================
 
 @router.message(Command("subscribe"))
-async def cmd_subscribe(message: Message, state: FSMContext):
+@router.callback_query(F.data == "open_subscribe")
+async def cmd_subscribe(event, state: FSMContext):
 
     await state.clear()
 
@@ -357,19 +438,33 @@ async def cmd_subscribe(message: Message, state: FSMContext):
 
     builder.adjust(1)
 
-    await message.answer(
-        (
-            "⭐ <b>Создание подписки</b>\n\n"
-            "Выберите тип:"
-        ),
-        parse_mode="HTML",
-        reply_markup=builder.as_markup()
+    text = (
+        "⭐ <b>Создание подписки</b>\n\n"
+        "Выберите тип:"
     )
+
+    if isinstance(event, Message):
+
+        await event.answer(
+            text,
+            parse_mode="HTML",
+            reply_markup=builder.as_markup()
+        )
+
+    else:
+
+        await event.message.delete()
+
+        await event.message.answer(
+            text,
+            parse_mode="HTML",
+            reply_markup=builder.as_markup()
+        )
 
     await state.set_state(SubscribeStates.waiting_for_type)
 
 # =========================
-# ПОДПИСКИ
+# SUBSCRIPTIONS
 # =========================
 
 @router.message(Command("subscriptions"))
@@ -393,10 +488,10 @@ async def cmd_subscriptions(event):
 
     builder = InlineKeyboardBuilder()
 
-    for idx, (_, sub_item) in enumerate(user_subs):
+    for idx, (_, item) in enumerate(user_subs):
 
         builder.button(
-            text=sub_item,
+            text=item,
             callback_data=f"subscription:{idx}"
         )
 
@@ -417,6 +512,8 @@ async def cmd_subscriptions(event):
 
     else:
 
+        await event.message.delete()
+
         await event.message.answer(
             text,
             parse_mode="HTML",
@@ -424,7 +521,89 @@ async def cmd_subscriptions(event):
         )
 
 # =========================
-# ВЫБОР ТИПА
+# UNSUBSCRIBE
+# =========================
+
+@router.message(Command("unsubscribe"))
+@router.callback_query(F.data == "open_unsubscribe")
+async def unsubscribe_menu(event):
+
+    user_id = event.from_user.id
+
+    user_subs = subscriptions.get(user_id, [])
+
+    if not user_subs:
+
+        text = "❌ У вас нет подписок."
+
+        if isinstance(event, Message):
+            await event.answer(text)
+        else:
+            await event.message.answer(text)
+
+        return
+
+    builder = InlineKeyboardBuilder()
+
+    for idx, (_, item) in enumerate(user_subs):
+
+        builder.button(
+            text=f"❌ {item}",
+            callback_data=f"unsubscribe:{idx}"
+        )
+
+    builder.adjust(1)
+
+    text = (
+        "➖ <b>Удаление подписки</b>\n\n"
+        "Выберите подписку:"
+    )
+
+    if isinstance(event, Message):
+
+        await event.answer(
+            text,
+            parse_mode="HTML",
+            reply_markup=builder.as_markup()
+        )
+
+    else:
+
+        await event.message.delete()
+
+        await event.message.answer(
+            text,
+            parse_mode="HTML",
+            reply_markup=builder.as_markup()
+        )
+
+# =========================
+# УДАЛЕНИЕ ПОДПИСКИ
+# =========================
+
+@router.callback_query(F.data.startswith("unsubscribe:"))
+async def unsubscribe_process(callback: CallbackQuery):
+
+    idx = int(callback.data.split(":")[1])
+
+    user_id = callback.from_user.id
+
+    user_subs = subscriptions.get(user_id, [])
+
+    if idx >= len(user_subs):
+        return
+
+    deleted_sub = user_subs.pop(idx)
+
+    await callback.message.delete()
+
+    await callback.message.answer(
+        f"✅ Подписка удалена\n\n<b>{deleted_sub[1]}</b>",
+        parse_mode="HTML"
+    )
+
+# =========================
+# ВЫБОР ТИПА РАСПИСАНИЯ
 # =========================
 
 @router.callback_query(F.data.startswith("type:"))
@@ -447,6 +626,8 @@ async def process_type(callback: CallbackQuery, state: FSMContext):
 
     builder.adjust(2)
 
+    await callback.message.delete()
+
     await callback.message.answer(
         "🔎 <b>Выберите значение</b>",
         parse_mode="HTML",
@@ -454,8 +635,6 @@ async def process_type(callback: CallbackQuery, state: FSMContext):
     )
 
     await state.set_state(ScheduleStates.waiting_for_item)
-
-    await callback.answer()
 
 # =========================
 # ВЫБОР ЭЛЕМЕНТА
@@ -508,6 +687,8 @@ async def process_item(callback: CallbackQuery, state: FSMContext):
 
     builder.adjust(2)
 
+    await callback.message.delete()
+
     await callback.message.answer(
         "📅 <b>Выберите дату</b>",
         parse_mode="HTML",
@@ -515,8 +696,6 @@ async def process_item(callback: CallbackQuery, state: FSMContext):
     )
 
     await state.set_state(ScheduleStates.waiting_for_date)
-
-    await callback.answer()
 
 # =========================
 # ПОКАЗ РАСПИСАНИЯ
@@ -579,14 +758,14 @@ async def process_date(callback: CallbackQuery, state: FSMContext):
                 f"🚪 {l['room']}\n\n"
             )
 
+    await callback.message.delete()
+
     await callback.message.answer(
         text,
         parse_mode="HTML"
     )
 
     await state.clear()
-
-    await callback.answer()
 
 # =========================
 # СОЗДАНИЕ ПОДПИСКИ
@@ -615,6 +794,8 @@ async def process_sub_type(callback: CallbackQuery, state: FSMContext):
 
     builder.adjust(2)
 
+    await callback.message.delete()
+
     await callback.message.answer(
         "⭐ <b>Выберите объект подписки</b>",
         parse_mode="HTML",
@@ -622,8 +803,6 @@ async def process_sub_type(callback: CallbackQuery, state: FSMContext):
     )
 
     await state.set_state(SubscribeStates.waiting_for_item)
-
-    await callback.answer()
 
 # =========================
 # СОХРАНЕНИЕ ПОДПИСКИ
@@ -656,17 +835,14 @@ async def process_sub_item(callback: CallbackQuery, state: FSMContext):
             (search_type, chosen_item)
         )
 
+    await callback.message.delete()
+
     await callback.message.answer(
-        (
-            f"⭐ Подписка сохранена\n\n"
-            f"<b>{chosen_item}</b>"
-        ),
+        f"⭐ Подписка сохранена\n\n<b>{chosen_item}</b>",
         parse_mode="HTML"
     )
 
     await state.clear()
-
-    await callback.answer()
 
 # =========================
 # ОТКРЫТЬ ПОДПИСКУ
@@ -742,15 +918,119 @@ async def open_subscription(callback: CallbackQuery):
                 f"🚪 {l['room']}\n\n"
             )
 
+    await callback.message.delete()
+
     await callback.message.answer(
         text,
         parse_mode="HTML"
     )
 
-    await callback.answer()
+# =========================
+# АДМИН ПАНЕЛЬ
+# =========================
+
+@router.message(Command("admin"))
+async def admin_panel(message: Message):
+
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    builder = InlineKeyboardBuilder()
+
+    builder.button(
+        text="📢 Рассылка",
+        callback_data="admin_broadcast"
+    )
+
+    builder.button(
+        text="📊 Статистика",
+        callback_data="admin_stats"
+    )
+
+    builder.adjust(1)
+
+    await message.answer(
+        "🛠 <b>Админ панель</b>",
+        parse_mode="HTML",
+        reply_markup=builder.as_markup()
+    )
 
 # =========================
-# ОБНОВЛЕНИЕ РАСПИСАНИЯ
+# СТАТИСТИКА
+# =========================
+
+@router.callback_query(F.data == "admin_stats")
+async def admin_stats(callback: CallbackQuery):
+
+    if callback.from_user.id != ADMIN_ID:
+        return
+
+    text = (
+        "📊 <b>Статистика</b>\n\n"
+        f"👥 Пользователей: <b>{len(users_db)}</b>\n"
+        f"⭐ Подписок: <b>{sum(len(v) for v in subscriptions.values())}</b>\n"
+        f"📚 Занятий: <b>{len(lessons_db)}</b>"
+    )
+
+    await callback.message.answer(
+        text,
+        parse_mode="HTML"
+    )
+
+# =========================
+# РАССЫЛКА
+# =========================
+
+@router.callback_query(F.data == "admin_broadcast")
+async def admin_broadcast(callback: CallbackQuery, state: FSMContext):
+
+    if callback.from_user.id != ADMIN_ID:
+        return
+
+    await callback.message.answer(
+        "📢 Введите текст рассылки:"
+    )
+
+    await state.set_state(AdminStates.waiting_for_broadcast)
+
+# =========================
+# ОТПРАВКА РАССЫЛКИ
+# =========================
+
+@router.message(AdminStates.waiting_for_broadcast)
+async def process_broadcast(message: Message, state: FSMContext):
+
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    sent = 0
+
+    for user_id in users_db:
+
+        try:
+
+            await message.bot.send_message(
+                user_id,
+                (
+                    "📢 <b>Сообщение от администрации</b>\n\n"
+                    f"{message.text}"
+                ),
+                parse_mode="HTML"
+            )
+
+            sent += 1
+
+        except:
+            pass
+
+    await message.answer(
+        f"✅ Рассылка завершена\n\nОтправлено: {sent}"
+    )
+
+    await state.clear()
+
+# =========================
+# АВТООБНОВЛЕНИЕ
 # =========================
 
 async def scheduler_loop():
