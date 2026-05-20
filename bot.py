@@ -16,7 +16,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 
-BOT_TOKEN = "PASTE_YOUR_TOKEN"
+BOT_TOKEN = "8626762224:AAGdtJiY0A3yTOCh7RWrOuNKI4M9iYLVNFQ"
 PUBLIC_LINK = "https://disk.360.yandex.ru/d/Xc08g8WbTavdHQ"
 ADMIN_ID = 7685909494
 
