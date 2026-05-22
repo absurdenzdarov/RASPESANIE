@@ -1,6 +1,8 @@
+openpyxl
 xlrd
 requests
 aiogram
 pandas
 xlrd
 requests
+openpyxl
